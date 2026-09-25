@@ -8,8 +8,21 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"demoagent/internal/agent"
+	"demoagent/internal/llm"
 	"demoagent/internal/session"
+	"demoagent/internal/tools"
 )
+
+type fakeLLM struct {
+	responses []llm.Response
+}
+
+func (f *fakeLLM) CreateResponse(_ context.Context, _ llm.Request) (llm.Response, error) {
+	response := f.responses[0]
+	f.responses = f.responses[1:]
+	return response, nil
+}
 
 func TestSessionRoutes(t *testing.T) {
 	store, err := session.Open(context.Background(), ":memory:")
@@ -17,7 +30,7 @@ func TestSessionRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	handler := NewHandler(store)
+	handler := NewHandler(store, nil)
 
 	health := httptest.NewRecorder()
 	handler.ServeHTTP(health, httptest.NewRequest(http.MethodGet, "/healthz", nil))
@@ -51,8 +64,8 @@ func TestSessionRoutes(t *testing.T) {
 
 	chat := httptest.NewRecorder()
 	handler.ServeHTTP(chat, httptest.NewRequest(http.MethodPost, "/sessions/"+item.ID+"/messages", bytes.NewBufferString(`{}`)))
-	if chat.Code != http.StatusNotImplemented {
-		t.Fatalf("phase-one chat status = %d", chat.Code)
+	if chat.Code != http.StatusBadRequest {
+		t.Fatalf("invalid chat request status = %d", chat.Code)
 	}
 }
 
@@ -65,9 +78,54 @@ func TestCreateSessionRejectsInvalidJSON(t *testing.T) {
 
 	for _, body := range []string{`{}`, `{"user_id":"a","unexpected":true}`, `{"user_id":"a"}{"user_id":"b"}`} {
 		recorder := httptest.NewRecorder()
-		NewHandler(store).ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/sessions", bytes.NewBufferString(body)))
+		NewHandler(store, nil).ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/sessions", bytes.NewBufferString(body)))
 		if recorder.Code != http.StatusBadRequest {
 			t.Fatalf("body %q returned %d", body, recorder.Code)
 		}
+	}
+}
+
+func TestChatAndTraceRoutes(t *testing.T) {
+	ctx := context.Background()
+	store, err := session.Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	item, err := store.Create(ctx, "user-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := tools.NewRegistry()
+	if err := registry.Register(tools.Calculator{}); err != nil {
+		t.Fatal(err)
+	}
+	client := &fakeLLM{responses: []llm.Response{
+		{Output: []json.RawMessage{json.RawMessage(`{"type":"function_call","call_id":"call_1","name":"calculator","arguments":"{\"expression\":\"2+2\"}"}`)}},
+		{Output: []json.RawMessage{json.RawMessage(`{"type":"message","role":"assistant","content":[{"type":"output_text","text":"4"}]}`)}},
+	}}
+	handler := NewHandler(store, agent.NewRunner(client, store, registry, "test-model"))
+	chat := httptest.NewRecorder()
+	handler.ServeHTTP(chat, httptest.NewRequest(http.MethodPost, "/sessions/"+item.ID+"/messages",
+		bytes.NewBufferString(`{"user_id":"user-a","message":"2+2=?"}`)))
+	if chat.Code != http.StatusOK {
+		t.Fatalf("chat status = %d: %s", chat.Code, chat.Body.String())
+	}
+	var answer struct {
+		Answer    string `json:"answer"`
+		ToolCalls int    `json:"tool_calls"`
+	}
+	if err := json.Unmarshal(chat.Body.Bytes(), &answer); err != nil || answer.Answer != "4" || answer.ToolCalls != 1 {
+		t.Fatalf("chat answer = %+v, %v", answer, err)
+	}
+	trace := httptest.NewRecorder()
+	handler.ServeHTTP(trace, httptest.NewRequest(http.MethodGet, "/sessions/"+item.ID+"/trace?user_id=user-a", nil))
+	if trace.Code != http.StatusOK || !bytes.Contains(trace.Body.Bytes(), []byte(`"tool_name":"calculator"`)) {
+		t.Fatalf("trace status = %d: %s", trace.Code, trace.Body.String())
+	}
+	other := httptest.NewRecorder()
+	handler.ServeHTTP(other, httptest.NewRequest(http.MethodGet, "/sessions/"+item.ID+"/trace?user_id=user-b", nil))
+	if other.Code != http.StatusNotFound {
+		t.Fatalf("other user saw traces: %d", other.Code)
 	}
 }

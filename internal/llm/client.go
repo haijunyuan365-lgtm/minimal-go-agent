@@ -12,15 +12,18 @@ type Client interface {
 }
 
 type Request struct {
-	Model        string
-	Instructions string
-	Input        []json.RawMessage
-	Tools        []json.RawMessage
-	Store        bool
+	Model            string
+	Instructions     string
+	Input            []json.RawMessage
+	Tools            []json.RawMessage
+	Store            bool
+	ReasoningSummary string
 }
 
 type Response struct {
-	ID     string
-	Output []json.RawMessage
-	Usage  json.RawMessage
+	ID                string
+	Status            string
+	Output            []json.RawMessage
+	Usage             json.RawMessage
+	IncompleteDetails json.RawMessage
 }

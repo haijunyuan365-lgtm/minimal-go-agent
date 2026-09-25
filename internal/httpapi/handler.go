@@ -7,7 +7,9 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
+	"demoagent/internal/agent"
 	"demoagent/internal/session"
 )
 
@@ -15,9 +17,10 @@ type SessionStore interface {
 	Ping(context.Context) error
 	Create(context.Context, string) (session.Session, error)
 	Get(context.Context, string, string) (session.Session, error)
+	ListTraces(context.Context, string, string) ([]session.ToolTrace, error)
 }
 
-func NewHandler(store SessionStore) http.Handler {
+func NewHandler(store SessionStore, runner *agent.Runner) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if err := store.Ping(r.Context()); err != nil {
@@ -63,10 +66,58 @@ func NewHandler(store SessionStore) http.Handler {
 		writeJSON(w, http.StatusOK, item)
 	})
 	mux.HandleFunc("POST /sessions/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
-		writeError(w, http.StatusNotImplemented, "not_implemented", "Agent loop is scheduled for phase two")
+		var body struct {
+			UserID  string `json:"user_id"`
+			Message string `json:"message"`
+		}
+		if err := decodeJSON(w, r, &body); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
+		if strings.TrimSpace(body.UserID) == "" || strings.TrimSpace(body.Message) == "" {
+			writeError(w, http.StatusBadRequest, "invalid_request", "user_id and message are required")
+			return
+		}
+		if runner == nil {
+			writeError(w, http.StatusServiceUnavailable, "llm_not_configured", "Agent is not configured")
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
+		defer cancel()
+		result, err := runner.Run(ctx, body.UserID, r.PathValue("id"), body.Message)
+		if err != nil {
+			switch {
+			case errors.Is(err, session.ErrNotFound):
+				writeError(w, http.StatusNotFound, "not_found", "session not found")
+			case errors.Is(err, agent.ErrNotConfigured):
+				writeError(w, http.StatusServiceUnavailable, "llm_not_configured", err.Error())
+			case errors.Is(err, agent.ErrEmptyMessage), errors.Is(err, agent.ErrMessageTooLong):
+				writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+			case errors.Is(err, agent.ErrLimit):
+				writeError(w, http.StatusUnprocessableEntity, "agent_limit", err.Error())
+			default:
+				writeError(w, http.StatusBadGateway, "agent_error", err.Error())
+			}
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
 	})
 	mux.HandleFunc("GET /sessions/{id}/trace", func(w http.ResponseWriter, r *http.Request) {
-		writeError(w, http.StatusNotImplemented, "not_implemented", "Tool tracing is scheduled for phase two")
+		userID := strings.TrimSpace(r.URL.Query().Get("user_id"))
+		if userID == "" {
+			writeError(w, http.StatusBadRequest, "invalid_request", "user_id is required")
+			return
+		}
+		traces, err := store.ListTraces(r.Context(), userID, r.PathValue("id"))
+		if errors.Is(err, session.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "not_found", "session not found")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "storage_error", "could not read traces")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"traces": traces})
 	})
 	return mux
 }

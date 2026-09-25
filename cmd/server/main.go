@@ -9,9 +9,12 @@ import (
 	"syscall"
 	"time"
 
+	"demoagent/internal/agent"
 	"demoagent/internal/config"
 	"demoagent/internal/httpapi"
+	"demoagent/internal/llm"
 	"demoagent/internal/session"
+	"demoagent/internal/tools"
 )
 
 func main() {
@@ -31,13 +34,26 @@ func main() {
 		os.Exit(1)
 	}
 	defer store.Close()
+	registry := tools.NewRegistry()
+	for _, tool := range []tools.Tool{tools.Calculator{}, tools.Search{}, tools.Weather{}, tools.TodoTool{Store: store}} {
+		if err := registry.Register(tool); err != nil {
+			logger.Error("tool registration failed", "error", err)
+			os.Exit(1)
+		}
+	}
+	var client llm.Client
+	if cfg.OpenAIAPIKey != "" {
+		client = llm.NewResponsesClient(cfg.OpenAIAPIKey)
+	}
+	runner := agent.NewRunner(client, store, registry, cfg.OpenAIModel)
+	runner.ReasoningSummary = cfg.OpenAIReasoningSummary
 
 	server := &http.Server{
 		Addr:              cfg.ListenAddr,
-		Handler:           httpapi.NewHandler(store),
+		Handler:           httpapi.NewHandler(store, runner),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      30 * time.Second,
+		WriteTimeout:      190 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
 	go func() {
