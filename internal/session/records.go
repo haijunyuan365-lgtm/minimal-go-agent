@@ -17,6 +17,7 @@ type Todo struct {
 }
 
 type Message struct {
+	ID      int64  `json:"id"`
 	Role    string `json:"role"`
 	Content string `json:"content"`
 }
@@ -86,53 +87,86 @@ func (s *Store) ListTodos(ctx context.Context, userID, sessionID string) ([]Todo
 	return items, rows.Err()
 }
 
-func (s *Store) AddMessage(ctx context.Context, userID, sessionID, role, content string) error {
-	result, err := s.db.ExecContext(ctx, `
-		INSERT INTO messages(session_id, role, content, created_at)
-		SELECT id, ?, ?, ? FROM sessions WHERE id = ? AND user_id = ?`,
-		role, content, time.Now().UTC().Format(time.RFC3339Nano), sessionID, userID)
+func (s *Store) AddTurn(ctx context.Context, userID, sessionID, userText, assistantText string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("save message: %w", err)
+		return fmt.Errorf("begin conversation turn: %w", err)
+	}
+	defer tx.Rollback()
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	result, err := tx.ExecContext(ctx, `
+		INSERT INTO messages(session_id, role, content, created_at)
+		SELECT id, 'user', ?, ? FROM sessions WHERE id = ? AND user_id = ?`,
+		userText, now, sessionID, userID)
+	if err != nil {
+		return fmt.Errorf("save user turn: %w", err)
 	}
 	affected, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("check message insertion: %w", err)
+		return fmt.Errorf("check user turn: %w", err)
 	}
-	if affected == 0 {
+	if affected != 1 {
 		return ErrNotFound
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO messages(session_id, role, content, created_at)
+		VALUES (?, 'assistant', ?, ?)`, sessionID, assistantText, now); err != nil {
+		return fmt.Errorf("save assistant turn: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE sessions SET updated_at = ? WHERE id = ?", now, sessionID); err != nil {
+		return fmt.Errorf("update session activity: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit conversation turn: %w", err)
 	}
 	return nil
 }
 
-func (s *Store) RecentMessages(ctx context.Context, userID, sessionID string, limit int) ([]Message, error) {
+func (s *Store) MessagesAfter(ctx context.Context, userID, sessionID string, afterID int64) ([]Message, error) {
 	if _, err := s.Get(ctx, userID, sessionID); err != nil {
 		return nil, err
 	}
-	if limit < 1 {
-		return nil, errors.New("message limit must be positive")
-	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT role, content FROM messages WHERE session_id = ? AND role IN ('user', 'assistant')
-		ORDER BY id DESC LIMIT ?`, sessionID, limit)
+		SELECT id, role, content FROM messages
+		WHERE session_id = ? AND id > ? AND role IN ('user', 'assistant') ORDER BY id`,
+		sessionID, afterID)
 	if err != nil {
-		return nil, fmt.Errorf("read messages: %w", err)
+		return nil, fmt.Errorf("read active conversation: %w", err)
 	}
 	defer rows.Close()
 	messages := make([]Message, 0)
 	for rows.Next() {
 		var message Message
-		if err := rows.Scan(&message.Role, &message.Content); err != nil {
-			return nil, fmt.Errorf("scan message: %w", err)
+		if err := rows.Scan(&message.ID, &message.Role, &message.Content); err != nil {
+			return nil, fmt.Errorf("scan active message: %w", err)
 		}
 		messages = append(messages, message)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	for left, right := 0, len(messages)-1; left < right; left, right = left+1, right-1 {
-		messages[left], messages[right] = messages[right], messages[left]
+		return nil, fmt.Errorf("iterate active messages: %w", err)
 	}
 	return messages, nil
+}
+
+func (s *Store) UpdateSummary(ctx context.Context, userID, sessionID string, expectedThrough, newThrough int64, summary string) error {
+	if newThrough <= expectedThrough {
+		return errors.New("summary boundary must advance")
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE sessions SET summary = ?, summary_through_message_id = ?, updated_at = ?
+		WHERE id = ? AND user_id = ? AND summary_through_message_id = ?`,
+		summary, newThrough, time.Now().UTC().Format(time.RFC3339Nano), sessionID, userID, expectedThrough)
+	if err != nil {
+		return fmt.Errorf("update session summary: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("check summary update: %w", err)
+	}
+	if affected != 1 {
+		return ErrConflict
+	}
+	return nil
 }
 
 func (s *Store) AddTrace(ctx context.Context, userID, sessionID string, trace ToolTrace) error {

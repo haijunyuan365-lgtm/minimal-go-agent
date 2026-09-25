@@ -145,3 +145,30 @@ func TestRunUnknownToolErrorAndLimit(t *testing.T) {
 		t.Fatalf("limit result: %+v, %v", result, err)
 	}
 }
+
+func TestToolFollowupReadsSessionTodo(t *testing.T) {
+	client := &scriptedClient{responses: []llm.Response{
+		{Output: []json.RawMessage{toolCall("add", "todo", `{"action":"add","text":"带伞"}`)}},
+		{Output: []json.RawMessage{finalMessage("已记下带伞。")}},
+		{Output: []json.RawMessage{toolCall("list", "todo", `{"action":"list","text":""}`)}},
+		{Output: []json.RawMessage{finalMessage("你记了带伞。")}},
+	}}
+	runner, store, conversation := testRunner(t, client)
+	if _, err := runner.Run(context.Background(), "user-a", conversation.ID, "帮我记下带伞"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.Run(context.Background(), "user-a", conversation.ID, "刚才记了什么待办？"); err != nil {
+		t.Fatal(err)
+	}
+	if len(client.requests) != 4 || len(client.requests[2].Input) != 3 {
+		t.Fatalf("follow-up context was not recalled: %+v", client.requests)
+	}
+	lastInput := string(client.requests[3].Input[len(client.requests[3].Input)-1])
+	if !strings.Contains(lastInput, "带伞") || !strings.Contains(lastInput, "function_call_output") {
+		t.Fatalf("todo list was not returned to model: %s", lastInput)
+	}
+	todos, err := store.ListTodos(context.Background(), "user-a", conversation.ID)
+	if err != nil || len(todos) != 1 || todos[0].Text != "带伞" {
+		t.Fatalf("todo not persisted: %+v, %v", todos, err)
+	}
+}
