@@ -18,6 +18,7 @@ type Request struct {
 	Tools            []json.RawMessage
 	Store            bool
 	ReasoningSummary string
+	ReasoningEffort  string
 }
 
 type Response struct {

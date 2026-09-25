@@ -16,7 +16,7 @@ import (
 )
 
 var (
-	ErrNotConfigured  = errors.New("OPENAI_API_KEY and OPENAI_MODEL are required for chat")
+	ErrNotConfigured  = errors.New("selected LLM provider API key and model are required for chat")
 	ErrLimit          = errors.New("agent stopped at its per-turn call limit")
 	ErrEmptyMessage   = errors.New("message must not be empty")
 	ErrMessageTooLong = errors.New("message exceeds 4000 characters")
@@ -38,6 +38,7 @@ type Runner struct {
 	Tools              *tools.Registry
 	Model              string
 	ReasoningSummary   string
+	ReasoningEffort    string
 	MaxLLMCalls        int
 	MaxToolCalls       int
 	MaxRecentTurns     int
@@ -126,6 +127,7 @@ func (runner *Runner) Run(ctx context.Context, userID, sessionID, message string
 		response, err := runner.LLM.CreateResponse(ctx, llm.Request{
 			Model: runner.Model, Instructions: instructions, Input: input,
 			Tools: definitions, Store: false, ReasoningSummary: runner.ReasoningSummary,
+			ReasoningEffort: runner.ReasoningEffort,
 		})
 		result.LLMCalls++
 		if err != nil {

@@ -21,3 +21,9 @@
 用户 Prompt：“完成第三阶段的内容。”
 
 产出：按 session 串行处理请求；在每轮开始召回摘要和未压缩的近期完整轮次；超过阈值时用 LLM 把较早已完成轮次压缩为摘要，并持久化摘要覆盖的消息 ID。原始消息不删除。测试覆盖纯对话和工具追问、两个窗口、旧数据库升级及重启恢复。
+
+## 2026-09-25：DeepSeek 协议接入
+
+用户 Prompt：“我需要你实现 DeepSeek 的协议。你进行更改，让我配置好 DeepSeek 的 apikey 等之后，能够访问 llm。并且告诉我你进行了哪些更改。”
+
+产出：根据 DeepSeek 官方 Responses API 文档，复用项目已有的 stateless Responses Agent Runtime；加入 `LLM_PROVIDER=deepseek`、DeepSeek 密钥、模型、可选完整端点和 reasoning effort 配置；适配请求中的不支持字段；扩展启动和冒烟测试脚本，并以本地模拟 DeepSeek 接口验证工具回传与追问。用户尚未配置真实密钥，因此真实网络连通性仍待其配置后验证。

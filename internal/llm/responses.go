@@ -13,11 +13,21 @@ import (
 )
 
 const DefaultEndpoint = "https://api.openai.com/v1/responses"
+const DefaultDeepSeekEndpoint = "https://api.deepseek.com/responses"
 
 type ResponsesClient struct {
 	APIKey   string
 	Endpoint string
 	HTTP     *http.Client
+	deepSeek bool
+}
+
+// NewDeepSeekClient uses DeepSeek's native, stateless Responses API.
+func NewDeepSeekClient(apiKey string) *ResponsesClient {
+	return &ResponsesClient{
+		APIKey: apiKey, Endpoint: DefaultDeepSeekEndpoint,
+		HTTP: &http.Client{Timeout: 45 * time.Second}, deepSeek: true,
+	}
 }
 
 func NewResponsesClient(apiKey string) *ResponsesClient {
@@ -29,11 +39,17 @@ func NewResponsesClient(apiKey string) *ResponsesClient {
 
 func (client *ResponsesClient) CreateResponse(ctx context.Context, request Request) (Response, error) {
 	if strings.TrimSpace(client.APIKey) == "" || strings.TrimSpace(request.Model) == "" {
+		if client.deepSeek {
+			return Response{}, errors.New("DEEPSEEK_API_KEY and DEEPSEEK_MODEL are required for chat")
+		}
 		return Response{}, errors.New("OPENAI_API_KEY and OPENAI_MODEL are required for chat")
 	}
 	endpoint := client.Endpoint
 	if endpoint == "" {
 		endpoint = DefaultEndpoint
+		if client.deepSeek {
+			endpoint = DefaultDeepSeekEndpoint
+		}
 	}
 	httpClient := client.HTTP
 	if httpClient == nil {
@@ -41,13 +57,36 @@ func (client *ResponsesClient) CreateResponse(ctx context.Context, request Reque
 	}
 	payload := map[string]any{
 		"model": request.Model, "instructions": request.Instructions,
-		"input": request.Input, "tools": request.Tools, "store": request.Store,
+		"input": request.Input, "tools": request.Tools,
+	}
+	if client.deepSeek {
+		// DeepSeek accepts Responses items but has no server-side storage or
+		// strict function mode. Omit the OpenAI-only request fields.
+		if len(request.Tools) == 0 {
+			delete(payload, "tools")
+		} else {
+			definitions := make([]map[string]any, 0, len(request.Tools))
+			for _, raw := range request.Tools {
+				var definition map[string]any
+				if err := json.Unmarshal(raw, &definition); err != nil {
+					return Response{}, fmt.Errorf("decode DeepSeek tool definition: %w", err)
+				}
+				delete(definition, "strict")
+				definitions = append(definitions, definition)
+			}
+			payload["tools"] = definitions
+		}
+		if request.ReasoningEffort != "" {
+			payload["reasoning"] = map[string]string{"effort": request.ReasoningEffort}
+		}
+	} else {
+		payload["store"] = request.Store
+		if request.ReasoningSummary != "" {
+			payload["reasoning"] = map[string]string{"summary": request.ReasoningSummary}
+		}
 	}
 	if len(request.Tools) > 0 {
 		payload["tool_choice"] = "auto"
-	}
-	if request.ReasoningSummary != "" {
-		payload["reasoning"] = map[string]string{"summary": request.ReasoningSummary}
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {

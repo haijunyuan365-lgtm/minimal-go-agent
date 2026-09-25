@@ -42,3 +42,9 @@
 - 问题：同一窗口的两个并发请求可能交错写入历史；失败请求若只保存用户消息，会留下不完整轮次。
 - 处理：对每个 `(user_id, session_id)` 使用独立的可取消锁；成功生成最终答复后，在一个 SQLite 事务中同时保存用户与 Agent 消息。不同窗口仍可独立处理。
 - 验证：session 锁、两个窗口隔离、工具追问和失败压缩后的原始历史均有测试。
+
+## 2026-09-25：DeepSeek Responses 兼容
+
+- 问题：需要在保留原有 OpenAI 实现的同时访问 DeepSeek，并让工具调用、无状态续接和 memory 压缩共用 Agent Runtime。
+- 处理：核对 DeepSeek 官方 Responses API 与兼容说明，使用 `https://api.deepseek.com/responses`；按 `LLM_PROVIDER` 选择密钥与模型。DeepSeek 请求省略 `store` 和工具 `strict`，reasoning 设置使用 `effort`。保留本轮完整输出项和 `function_call_output` 的 `call_id` 配对。
+- 验证：本地 HTTP 模拟覆盖鉴权、请求结构、DeepSeek reasoning 与工具调用、工具结果回传、第二轮追问及 trace；真实 API 冒烟测试等待用户配置密钥。

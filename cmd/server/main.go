@@ -42,11 +42,25 @@ func main() {
 		}
 	}
 	var client llm.Client
-	if cfg.OpenAIAPIKey != "" {
+	model := cfg.OpenAIModel
+	if cfg.LLMProvider == "deepseek" {
+		model = cfg.DeepSeekModel
+		if cfg.DeepSeekAPIKey != "" {
+			deepSeek := llm.NewDeepSeekClient(cfg.DeepSeekAPIKey)
+			if cfg.DeepSeekEndpoint != "" {
+				deepSeek.Endpoint = cfg.DeepSeekEndpoint
+			}
+			client = deepSeek
+		}
+	} else if cfg.OpenAIAPIKey != "" {
 		client = llm.NewResponsesClient(cfg.OpenAIAPIKey)
 	}
-	runner := agent.NewRunner(client, store, registry, cfg.OpenAIModel)
-	runner.ReasoningSummary = cfg.OpenAIReasoningSummary
+	runner := agent.NewRunner(client, store, registry, model)
+	if cfg.LLMProvider == "deepseek" {
+		runner.ReasoningEffort = cfg.DeepSeekReasoningEffort
+	} else {
+		runner.ReasoningSummary = cfg.OpenAIReasoningSummary
+	}
 
 	server := &http.Server{
 		Addr:              cfg.ListenAddr,
@@ -64,7 +78,7 @@ func main() {
 			logger.Error("server shutdown failed", "error", err)
 		}
 	}()
-	logger.Info("server starting", "addr", cfg.ListenAddr)
+	logger.Info("server starting", "addr", cfg.ListenAddr, "llm_provider", cfg.LLMProvider, "model", model)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		logger.Error("server failed", "error", err)
 		os.Exit(1)
