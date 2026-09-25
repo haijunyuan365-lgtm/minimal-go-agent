@@ -8,6 +8,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"demoagent/internal/config"
 )
 
 func TestResponsesClientWireFormat(t *testing.T) {
@@ -73,8 +75,7 @@ func TestDeepSeekResponsesWireFormat(t *testing.T) {
 		_, _ = w.Write([]byte(`{"id":"resp_ds","status":"completed","output":[{"type":"reasoning","content":[{"type":"reasoning_text","text":"plan"}]},{"type":"function_call","call_id":"call_1","name":"calculator","arguments":"{\"expression\":\"2+2\"}"}]}`))
 	}))
 	defer server.Close()
-	client := NewDeepSeekClient("deepseek-key")
-	client.Endpoint = server.URL + "/responses"
+	client := NewDeepSeekClient("deepseek-key", server.URL+"/responses", 45*time.Second)
 	client.HTTP = server.Client()
 	response, err := client.CreateResponse(context.Background(), Request{
 		Model: "deepseek-flash", Instructions: "Use tools", ReasoningEffort: "low",
@@ -90,26 +91,18 @@ func TestLiveResponsesAPI(t *testing.T) {
 	if os.Getenv("AGENT_LIVE_TEST") != "1" {
 		t.Skip("set AGENT_LIVE_TEST=1 to opt in to a real API call")
 	}
-	provider := os.Getenv("LLM_PROVIDER")
-	var client Client
-	apiKey, model := os.Getenv("OPENAI_API_KEY"), os.Getenv("OPENAI_MODEL")
-	if provider == "deepseek" {
-		apiKey, model = os.Getenv("DEEPSEEK_API_KEY"), os.Getenv("DEEPSEEK_MODEL")
-		deepSeek := NewDeepSeekClient(apiKey)
-		if endpoint := os.Getenv("DEEPSEEK_ENDPOINT"); endpoint != "" {
-			deepSeek.Endpoint = endpoint
-		}
-		client = deepSeek
-	} else {
-		client = NewResponsesClient(apiKey)
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
 	}
-	if apiKey == "" || model == "" {
-		t.Fatal("selected LLM provider API key and model are required")
+	client := NewConfiguredClient(cfg)
+	if client == nil {
+		t.Fatal("selected LLM provider API key is required")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	response, err := client.CreateResponse(ctx, Request{
-		Model: model, Input: []json.RawMessage{json.RawMessage(`{"role":"user","content":"Reply with the word ready."}`)},
+		Model: cfg.SelectedLLM().Model, Input: []json.RawMessage{json.RawMessage(`{"role":"user","content":"Reply with the word ready."}`)},
 	})
 	if err != nil || len(response.Output) == 0 {
 		t.Fatalf("live API response failed: %v", err)

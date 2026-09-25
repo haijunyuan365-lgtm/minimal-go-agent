@@ -104,7 +104,11 @@ func TestChatAndTraceRoutes(t *testing.T) {
 		{Output: []json.RawMessage{json.RawMessage(`{"type":"function_call","call_id":"call_1","name":"calculator","arguments":"{\"expression\":\"2+2\"}"}`)}},
 		{Output: []json.RawMessage{json.RawMessage(`{"type":"message","role":"assistant","content":[{"type":"output_text","text":"4"}]}`)}},
 	}}
-	handler := NewHandler(store, agent.NewRunner(client, store, registry, "test-model"))
+	handler := NewHandler(store, agent.NewRunner(client, store, registry, "test-model", agent.Limits{
+		MaxLLMCalls: 6, MaxToolCalls: 8, MaxMessageChars: 4000,
+		MaxRecentTurns: 8, ContextCharLimit: 12000, RecentCharBudget: 8000,
+		MaxSummaryChars: 2000, MaxCompactionCalls: 3,
+	}))
 	chat := httptest.NewRecorder()
 	handler.ServeHTTP(chat, httptest.NewRequest(http.MethodPost, "/sessions/"+item.ID+"/messages",
 		bytes.NewBufferString(`{"user_id":"user-a","message":"2+2=?"}`)))

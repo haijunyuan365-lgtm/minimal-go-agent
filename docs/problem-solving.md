@@ -48,3 +48,9 @@
 - 问题：需要在保留原有 OpenAI 实现的同时访问 DeepSeek，并让工具调用、无状态续接和 memory 压缩共用 Agent Runtime。
 - 处理：核对 DeepSeek 官方 Responses API 与兼容说明，使用 `https://api.deepseek.com/responses`；按 `LLM_PROVIDER` 选择密钥与模型。DeepSeek 请求省略 `store` 和工具 `strict`，reasoning 设置使用 `effort`。保留本轮完整输出项和 `function_call_output` 的 `call_id` 配对。
 - 验证：本地 HTTP 模拟覆盖鉴权、请求结构、DeepSeek reasoning 与工具调用、工具结果回传、第二轮追问及 trace；真实 API 冒烟测试等待用户配置密钥。
+
+## 2026-09-25：YAML 配置与密钥处理
+
+- 问题：此前 provider、模型和端点分散在环境变量中，Agent 限制由构造器写死，更换配置需要在多个地方查找。
+- 处理：新增受 Git 跟踪的 `config.yml`，集中管理服务、LLM 与 Agent 参数；用 `go.yaml.in/yaml/v3` 严格解析，拒绝未知字段、无效地址及非正数限制。API Key 字段默认引用 `.env` 或系统环境变量，避免仓库配置包含真实密钥。
+- 验证：测试读取仓库实际配置、切换 OpenAI/DeepSeek 客户端、解析错误与限制校验；普通 Go 测试不访问真实 API。

@@ -11,17 +11,19 @@
 
 ## 启动
 
-复制 `.env.example` 为 `.env`，选择 `LLM_PROVIDER=deepseek`，填入 `DEEPSEEK_API_KEY`；默认模型为 `deepseek-flash`。`.env` 已被 Git 忽略。也可以直接设置同名环境变量。然后从仓库根目录运行：
+在项目根目录编辑 [`config.yml`](config.yml)：`llm.provider` 选 `deepseek` 或 `openai`，对应区块中修改 `model`、`endpoint` 和可选的 reasoning 配置。文件还包含监听地址、数据库路径及 Agent 轮次和上下文限制。当前默认选择 DeepSeek，模型为 `deepseek-flash`。
+
+复制 `.env.example` 为 `.env`，填入所选服务商的 API Key。`config.yml` 的 `api_key: "${DEEPSEEK_API_KEY}"` 会读取该环境变量；OpenAI 同理。`.env` 已被 Git 忽略。也可以直接设置系统环境变量。然后从仓库根目录运行：
 
 ```powershell
 .\scripts\run.ps1
 ```
 
-默认监听 `:8080`，数据库位于 `data/agent.db`。可用 `AGENT_LISTEN_ADDR`、`AGENT_DB_PATH` 覆盖。没有密钥时服务仍可启动，但聊天接口返回 HTTP 503。
+默认监听 `:8080`，数据库位于 `data/agent.db`。如需使用另一份 YAML 文件，设置 `AGENT_CONFIG` 为文件路径。没有密钥时服务仍可启动，但聊天接口返回 HTTP 503。可以在 `config.yml` 的 `api_key` 中直接填写密钥，但该文件受 Git 跟踪，建议保持环境变量引用，避免提交密钥。
 
-DeepSeek 使用官方原生 Responses API：`POST https://api.deepseek.com/responses`。可用 `DEEPSEEK_MODEL` 选择 `deepseek-flash` 或 `deepseek-v4-pro`；如需兼容代理，可用 `DEEPSEEK_ENDPOINT` 覆盖**完整**的 `/responses` 地址。`DEEPSEEK_REASONING_EFFORT` 可选 `none`、`low`、`high`、`max`，未设置时由模型决定。DeepSeek 返回的 reasoning 输出项仅在本轮工具调用继续时回传给模型，不写入跨轮 memory，也不作为摘要返回。DeepSeek 对请求中的 `store`、工具 `strict` 和 reasoning summary 不提供相同语义，适配器会省略这些字段。
+DeepSeek 使用官方原生 Responses API，默认地址在 `config.yml` 中为 `https://api.deepseek.com/responses`。`llm.deepseek.model` 可选 `deepseek-flash` 或 `deepseek-v4-pro`；使用兼容代理时修改 `llm.deepseek.endpoint` 为完整的 `/responses` 地址。`reasoning_effort` 可选 `none`、`low`、`high`、`max`，留空时由模型决定。DeepSeek 返回的 reasoning 输出项仅在本轮工具调用继续时回传给模型，不写入跨轮 memory，也不作为摘要返回。DeepSeek 对请求中的 `store`、工具 `strict` 和 reasoning summary 不提供相同语义，适配器会省略这些字段。
 
-要使用 OpenAI，设置 `LLM_PROVIDER=openai`、`OPENAI_API_KEY` 和 `OPENAI_MODEL`。OpenAI 仍使用 `POST https://api.openai.com/v1/responses`；支持的模型可选 `OPENAI_REASONING_SUMMARY=auto`。不设置 `LLM_PROVIDER` 时默认 OpenAI。
+要使用 OpenAI，将 `llm.provider` 改成 `openai`，设置 `OPENAI_API_KEY`，并在 `llm.openai` 中选择模型及 `/responses` 地址。支持的模型可把 `reasoning_summary` 设为 `auto`。
 
 创建 session、聊天和查看 trace：
 
@@ -39,7 +41,7 @@ Invoke-RestMethod "http://localhost:8080/sessions/$($session.session_id)/trace?u
 ## 当前结构
 
 - `cmd/server`：HTTP 服务入口。
-- `internal/config`：环境变量配置。
+- `config.yml` 和 `internal/config`：YAML 配置、校验与 API Key 环境变量引用。
 - `internal/httpapi`：HTTP 路由和请求校验。
 - `internal/llm`：OpenAI/DeepSeek Responses API HTTP 客户端和可替换接口。
 - `internal/agent`：输出解析、Agent 主循环、session 锁和上下文压缩。
@@ -66,7 +68,7 @@ go test ./...
 .\scripts\live-smoke.ps1
 ```
 
-该脚本根据 `LLM_PROVIDER` 测试所选真实 Responses API 和“计算器 + 天气”工具循环。没有密钥时，普通 `go test ./...` 使用本地模拟接口和假 LLM，不发起真实 API 调用。普通测试还覆盖 DeepSeek 请求格式及工具回传、长对话压缩、纯对话追问、待办工具追问、两个窗口隔离、旧数据库升级和重启恢复。
+该脚本根据 `config.yml` 中的 `llm.provider` 测试所选真实 Responses API 和“计算器 + 天气”工具循环。没有密钥时，普通 `go test ./...` 使用本地模拟接口和假 LLM，不发起真实 API 调用。普通测试还覆盖配置加载与提供方切换、DeepSeek 请求格式及工具回传、长对话压缩、纯对话追问、待办工具追问、两个窗口隔离、旧数据库升级和重启恢复。
 
 DeepSeek 协议依据：[Responses API 指南](https://api-docs.deepseek.com/guides/responses_api/)及[接口定义](https://api-docs.deepseek.com/api/create-response/)。
 

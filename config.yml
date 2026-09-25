@@ -1,0 +1,35 @@
+# Edit this file to switch providers, models, endpoints, and runtime limits.
+# Keep real API keys out of Git. ${NAME} reads an environment variable.
+server:
+  listen_addr: ":8080"
+  database_path: "data/agent.db"
+  read_header_timeout_seconds: 5
+  read_timeout_seconds: 10
+  write_timeout_seconds: 190
+  idle_timeout_seconds: 60
+  shutdown_timeout_seconds: 5
+
+llm:
+  provider: deepseek # deepseek or openai
+  deepseek:
+    api_key: "${DEEPSEEK_API_KEY}"
+    model: deepseek-flash
+    endpoint: https://api.deepseek.com/responses
+    request_timeout_seconds: 45
+    reasoning_effort: "" # none, low, high, max, or empty for model default
+  openai:
+    api_key: "${OPENAI_API_KEY}"
+    model: gpt-5.4
+    endpoint: https://api.openai.com/v1/responses
+    request_timeout_seconds: 45
+    reasoning_summary: "" # auto or empty
+
+agent:
+  max_llm_calls: 6
+  max_tool_calls: 8
+  max_message_chars: 4000
+  max_recent_turns: 8
+  context_char_limit: 12000
+  recent_char_budget: 8000
+  max_summary_chars: 2000
+  max_compaction_calls: 3

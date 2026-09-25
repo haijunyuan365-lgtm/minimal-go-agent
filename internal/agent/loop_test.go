@@ -17,6 +17,14 @@ type scriptedClient struct {
 	requests  []llm.Request
 }
 
+func testLimits() Limits {
+	return Limits{
+		MaxLLMCalls: 6, MaxToolCalls: 8, MaxMessageChars: 4000,
+		MaxRecentTurns: 8, ContextCharLimit: 12000, RecentCharBudget: 8000,
+		MaxSummaryChars: 2000, MaxCompactionCalls: 3,
+	}
+}
+
 func (client *scriptedClient) CreateResponse(_ context.Context, request llm.Request) (llm.Response, error) {
 	request.Input = append([]json.RawMessage(nil), request.Input...)
 	client.requests = append(client.requests, request)
@@ -45,7 +53,7 @@ func testRunner(t *testing.T, client llm.Client) (*Runner, *session.Store, sessi
 			t.Fatal(err)
 		}
 	}
-	return NewRunner(client, store, registry, "test-model"), store, item
+	return NewRunner(client, store, registry, "test-model", testLimits()), store, item
 }
 
 func toolCall(id, name, args string) json.RawMessage {

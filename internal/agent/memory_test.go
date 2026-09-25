@@ -41,7 +41,7 @@ func TestMemoryCompactionAndRestartFollowup(t *testing.T) {
 		{Output: []json.RawMessage{finalMessage("用户叫小海，喜欢 Go。")}},
 		{Output: []json.RawMessage{finalMessage("你叫小海。")}},
 	}}
-	runner := NewRunner(client, store, registry, "test-model")
+	runner := NewRunner(client, store, registry, "test-model", testLimits())
 	runner.MaxRecentTurns = 2
 	result, err := runner.Run(ctx, "user-a", conversation.ID, "我叫什么？")
 	if err != nil || result.MemoryCompactions != 1 || result.Answer != "你叫小海。" {
@@ -72,7 +72,7 @@ func TestMemoryCompactionAndRestartFollowup(t *testing.T) {
 	}
 	defer reopened.Close()
 	nextClient := &scriptedClient{responses: []llm.Response{{Output: []json.RawMessage{finalMessage("你叫小海。")}}}}
-	nextRunner := NewRunner(nextClient, reopened, registry, "test-model")
+	nextRunner := NewRunner(nextClient, reopened, registry, "test-model", testLimits())
 	if _, err := nextRunner.Run(ctx, "user-a", conversation.ID, "重启后你还记得我的名字吗？"); err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestTwoWindowsKeepConversationAndTodosSeparate(t *testing.T) {
 		{Output: []json.RawMessage{finalMessage("窗口二继续")}},
 	}}
 	registry := tools.NewRegistry()
-	runner := NewRunner(client, store, registry, "test-model")
+	runner := NewRunner(client, store, registry, "test-model", testLimits())
 	if _, err := runner.Run(ctx, "user-a", first.ID, "继续窗口一"); err != nil {
 		t.Fatal(err)
 	}

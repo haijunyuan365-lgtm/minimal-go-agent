@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"demoagent/internal/llm"
 	"demoagent/internal/session"
@@ -72,10 +73,9 @@ func TestDeepSeekToolLoopAndFollowUp(t *testing.T) {
 	if err := registry.Register(tools.Calculator{}); err != nil {
 		t.Fatal(err)
 	}
-	client := llm.NewDeepSeekClient("test-key")
-	client.Endpoint = server.URL + "/responses"
+	client := llm.NewDeepSeekClient("test-key", server.URL+"/responses", 45*time.Second)
 	client.HTTP = server.Client()
-	runner := NewRunner(client, store, registry, "deepseek-flash")
+	runner := NewRunner(client, store, registry, "deepseek-flash", testLimits())
 	first, err := runner.Run(ctx, "user-a", conversation.ID, "计算 (12+8)/4")
 	if err != nil || first.Answer != "结果是 5。" || first.ToolCalls != 1 || first.LLMCalls != 2 {
 		t.Fatalf("first turn = %+v, %v", first, err)

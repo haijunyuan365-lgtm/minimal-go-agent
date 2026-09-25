@@ -12,9 +12,6 @@ import (
 	"time"
 )
 
-const DefaultEndpoint = "https://api.openai.com/v1/responses"
-const DefaultDeepSeekEndpoint = "https://api.deepseek.com/responses"
-
 type ResponsesClient struct {
 	APIKey   string
 	Endpoint string
@@ -23,37 +20,33 @@ type ResponsesClient struct {
 }
 
 // NewDeepSeekClient uses DeepSeek's native, stateless Responses API.
-func NewDeepSeekClient(apiKey string) *ResponsesClient {
+func NewDeepSeekClient(apiKey, endpoint string, timeout time.Duration) *ResponsesClient {
 	return &ResponsesClient{
-		APIKey: apiKey, Endpoint: DefaultDeepSeekEndpoint,
-		HTTP: &http.Client{Timeout: 45 * time.Second}, deepSeek: true,
+		APIKey: apiKey, Endpoint: endpoint,
+		HTTP: &http.Client{Timeout: timeout}, deepSeek: true,
 	}
 }
 
-func NewResponsesClient(apiKey string) *ResponsesClient {
+func NewResponsesClient(apiKey, endpoint string, timeout time.Duration) *ResponsesClient {
 	return &ResponsesClient{
-		APIKey: apiKey, Endpoint: DefaultEndpoint,
-		HTTP: &http.Client{Timeout: 45 * time.Second},
+		APIKey: apiKey, Endpoint: endpoint,
+		HTTP: &http.Client{Timeout: timeout},
 	}
 }
 
 func (client *ResponsesClient) CreateResponse(ctx context.Context, request Request) (Response, error) {
 	if strings.TrimSpace(client.APIKey) == "" || strings.TrimSpace(request.Model) == "" {
 		if client.deepSeek {
-			return Response{}, errors.New("DEEPSEEK_API_KEY and DEEPSEEK_MODEL are required for chat")
+			return Response{}, errors.New("DeepSeek API key and model are required for chat")
 		}
-		return Response{}, errors.New("OPENAI_API_KEY and OPENAI_MODEL are required for chat")
+		return Response{}, errors.New("OpenAI API key and model are required for chat")
 	}
-	endpoint := client.Endpoint
-	if endpoint == "" {
-		endpoint = DefaultEndpoint
-		if client.deepSeek {
-			endpoint = DefaultDeepSeekEndpoint
-		}
+	if strings.TrimSpace(client.Endpoint) == "" {
+		return Response{}, errors.New("LLM endpoint is required")
 	}
 	httpClient := client.HTTP
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 45 * time.Second}
+		return Response{}, errors.New("LLM HTTP client is required")
 	}
 	payload := map[string]any{
 		"model": request.Model, "instructions": request.Instructions,
@@ -92,7 +85,7 @@ func (client *ResponsesClient) CreateResponse(ctx context.Context, request Reque
 	if err != nil {
 		return Response{}, fmt.Errorf("encode LLM request: %w", err)
 	}
-	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(encoded))
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, client.Endpoint, bytes.NewReader(encoded))
 	if err != nil {
 		return Response{}, fmt.Errorf("create LLM request: %w", err)
 	}

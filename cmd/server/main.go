@@ -28,7 +28,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	store, err := session.Open(ctx, cfg.DatabasePath)
+	store, err := session.Open(ctx, cfg.Server.DatabasePath)
 	if err != nil {
 		logger.Error("database initialization failed", "error", err)
 		os.Exit(1)
@@ -41,44 +41,36 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	var client llm.Client
-	model := cfg.OpenAIModel
-	if cfg.LLMProvider == "deepseek" {
-		model = cfg.DeepSeekModel
-		if cfg.DeepSeekAPIKey != "" {
-			deepSeek := llm.NewDeepSeekClient(cfg.DeepSeekAPIKey)
-			if cfg.DeepSeekEndpoint != "" {
-				deepSeek.Endpoint = cfg.DeepSeekEndpoint
-			}
-			client = deepSeek
-		}
-	} else if cfg.OpenAIAPIKey != "" {
-		client = llm.NewResponsesClient(cfg.OpenAIAPIKey)
-	}
-	runner := agent.NewRunner(client, store, registry, model)
-	if cfg.LLMProvider == "deepseek" {
-		runner.ReasoningEffort = cfg.DeepSeekReasoningEffort
+	selected := cfg.SelectedLLM()
+	runner := agent.NewRunner(llm.NewConfiguredClient(cfg), store, registry, selected.Model, agent.Limits{
+		MaxLLMCalls: cfg.Agent.MaxLLMCalls, MaxToolCalls: cfg.Agent.MaxToolCalls,
+		MaxMessageChars: cfg.Agent.MaxMessageChars, MaxRecentTurns: cfg.Agent.MaxRecentTurns,
+		ContextCharLimit: cfg.Agent.ContextCharLimit, RecentCharBudget: cfg.Agent.RecentCharBudget,
+		MaxSummaryChars: cfg.Agent.MaxSummaryChars, MaxCompactionCalls: cfg.Agent.MaxCompactionCalls,
+	})
+	if cfg.LLM.Provider == "deepseek" {
+		runner.ReasoningEffort = selected.ReasoningEffort
 	} else {
-		runner.ReasoningSummary = cfg.OpenAIReasoningSummary
+		runner.ReasoningSummary = selected.ReasoningSummary
 	}
 
 	server := &http.Server{
-		Addr:              cfg.ListenAddr,
+		Addr:              cfg.Server.ListenAddr,
 		Handler:           httpapi.NewHandler(store, runner),
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      190 * time.Second,
-		IdleTimeout:       60 * time.Second,
+		ReadHeaderTimeout: time.Duration(cfg.Server.ReadHeaderTimeoutSeconds) * time.Second,
+		ReadTimeout:       time.Duration(cfg.Server.ReadTimeoutSeconds) * time.Second,
+		WriteTimeout:      time.Duration(cfg.Server.WriteTimeoutSeconds) * time.Second,
+		IdleTimeout:       time.Duration(cfg.Server.IdleTimeoutSeconds) * time.Second,
 	}
 	go func() {
 		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.Server.ShutdownTimeoutSeconds)*time.Second)
 		defer cancel()
 		if err := server.Shutdown(shutdownCtx); err != nil {
 			logger.Error("server shutdown failed", "error", err)
 		}
 	}()
-	logger.Info("server starting", "addr", cfg.ListenAddr, "llm_provider", cfg.LLMProvider, "model", model)
+	logger.Info("server starting", "addr", cfg.Server.ListenAddr, "llm_provider", cfg.LLM.Provider, "model", selected.Model)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		logger.Error("server failed", "error", err)
 		os.Exit(1)

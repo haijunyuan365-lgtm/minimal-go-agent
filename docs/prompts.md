@@ -27,3 +27,9 @@
 用户 Prompt：“我需要你实现 DeepSeek 的协议。你进行更改，让我配置好 DeepSeek 的 apikey 等之后，能够访问 llm。并且告诉我你进行了哪些更改。”
 
 产出：根据 DeepSeek 官方 Responses API 文档，复用项目已有的 stateless Responses Agent Runtime；加入 `LLM_PROVIDER=deepseek`、DeepSeek 密钥、模型、可选完整端点和 reasoning effort 配置；适配请求中的不支持字段；扩展启动和冒烟测试脚本，并以本地模拟 DeepSeek 接口验证工具回传与追问。用户尚未配置真实密钥，因此真实网络连通性仍待其配置后验证。
+
+## 2026-09-25：迁移到 config.yml
+
+用户 Prompt：“把配置文件信息写在专门的 config.yml 中，不要写死在代码里面，方便更换。修改后提交 Git，提交描述只用中文。”
+
+产出：将服务地址、数据库路径、提供方、模型、Responses API 地址、reasoning 选项和 Agent 限制统一写入 `config.yml`；Go 使用严格 YAML 解析和校验，API Key 可通过 `${环境变量名}` 引用。移除客户端内写死的 API 地址及 Runtime 构造器中的运行限制默认值，测试覆盖配置加载与提供方切换。

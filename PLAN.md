@@ -7,9 +7,9 @@
 ## 技术方案
 
 - Go 标准库实现 HTTP API、LLM HTTP 客户端和主循环。
-- OpenAI Responses API 的 function calling：向模型提供工具 JSON Schema，解析 `function_call`，执行本地工具，再提交带相同 `call_id` 的 `function_call_output`。
-- SQLite 保存用户、session、消息、摘要、待办和工具 trace；第三方依赖仅限 SQLite 驱动，不使用 Agent 框架。
-- 模型名称、API Key、监听地址、数据库路径均由环境变量配置。API Key 不写入代码或日志。
+- OpenAI/DeepSeek Responses API 的 function calling：向模型提供工具 JSON Schema，解析 `function_call`，执行本地工具，再提交带相同 `call_id` 的 `function_call_output`。
+- SQLite 保存用户、session、消息、摘要、待办和工具 trace；第三方依赖仅用于 SQLite 与 YAML 解析，不使用 Agent 框架。
+- `config.yml` 管理模型名称、接口地址、监听地址、数据库路径和运行限制。API Key 使用文件中的环境变量引用，不写入代码或日志。
 
 ## 分阶段实施
 
@@ -51,7 +51,7 @@
 
 ### 阶段四：测试、文档与提交
 
-- 假 `LLMClient` 测循环、错误、轮次上限和 session 隔离；真实 API 冒烟测试由 `OPENAI_API_KEY` 显式启用。
+- 假 `LLMClient` 测循环、错误、轮次上限和 session 隔离；真实 API 冒烟测试由 `config.yml` 所选提供方的 API Key 显式启用。
 - 增加脱敏工具 trace，记录时间、session、轮次、工具名、参数、结果/错误、耗时。
 - README 写清运行方式、系统设计、memory 召回时机与放置方式、测试和演示命令。
 - `docs/prompts.md` 记录 AI Prompt；`docs/problem-solving.md` 记录遇到的问题与解决方式。
@@ -85,10 +85,11 @@
 - “思考过程”只记录 API 实际返回的 reasoning summary（若可用）、工具决策和执行轨迹，不假设可以获取模型内部完整推理。
 - 搜索和天气的模拟结果必须显式标注，不能作为实时事实呈现。
 - 工具参数在执行前按 Schema 校验；计算器只解析允许的算术表达式，不执行任意代码。
-- API Key 仅从环境变量读取；trace 不能包含密钥和完整请求头。
+- 仓库中的 `config.yml` 使用环境变量引用获取 API Key；trace 不能包含密钥和完整请求头。
 
 ## 官方资料
 
 - [OpenAI Function calling](https://developers.openai.com/api/docs/guides/function-calling)
 - [OpenAI Conversation state](https://developers.openai.com/api/docs/guides/conversation-state)
 - [OpenAI Reasoning](https://developers.openai.com/api/docs/guides/reasoning)
+- [DeepSeek Responses API](https://api-docs.deepseek.com/guides/responses_api/)

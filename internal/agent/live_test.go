@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"demoagent/internal/config"
 	"demoagent/internal/llm"
 	"demoagent/internal/session"
 	"demoagent/internal/tools"
@@ -17,21 +18,13 @@ func TestLiveAgentToolFlow(t *testing.T) {
 	if os.Getenv("AGENT_LIVE_TEST") != "1" {
 		t.Skip("set AGENT_LIVE_TEST=1 to opt in to real API calls")
 	}
-	provider := os.Getenv("LLM_PROVIDER")
-	var client llm.Client
-	apiKey, model := os.Getenv("OPENAI_API_KEY"), os.Getenv("OPENAI_MODEL")
-	if provider == "deepseek" {
-		apiKey, model = os.Getenv("DEEPSEEK_API_KEY"), os.Getenv("DEEPSEEK_MODEL")
-		deepSeek := llm.NewDeepSeekClient(apiKey)
-		if endpoint := os.Getenv("DEEPSEEK_ENDPOINT"); endpoint != "" {
-			deepSeek.Endpoint = endpoint
-		}
-		client = deepSeek
-	} else {
-		client = llm.NewResponsesClient(apiKey)
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
 	}
-	if apiKey == "" || model == "" {
-		t.Fatal("selected LLM provider API key and model are required")
+	client := llm.NewConfiguredClient(cfg)
+	if client == nil {
+		t.Fatal("selected LLM provider API key is required")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -50,9 +43,14 @@ func TestLiveAgentToolFlow(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	runner := NewRunner(client, store, registry, model)
-	if provider == "deepseek" {
-		runner.ReasoningEffort = os.Getenv("DEEPSEEK_REASONING_EFFORT")
+	runner := NewRunner(client, store, registry, cfg.SelectedLLM().Model, Limits{
+		MaxLLMCalls: cfg.Agent.MaxLLMCalls, MaxToolCalls: cfg.Agent.MaxToolCalls,
+		MaxMessageChars: cfg.Agent.MaxMessageChars, MaxRecentTurns: cfg.Agent.MaxRecentTurns,
+		ContextCharLimit: cfg.Agent.ContextCharLimit, RecentCharBudget: cfg.Agent.RecentCharBudget,
+		MaxSummaryChars: cfg.Agent.MaxSummaryChars, MaxCompactionCalls: cfg.Agent.MaxCompactionCalls,
+	})
+	if cfg.LLM.Provider == "deepseek" {
+		runner.ReasoningEffort = cfg.SelectedLLM().ReasoningEffort
 	}
 	result, err := runner.Run(ctx, "live-test", conversation.ID,
 		"请调用 calculator 计算 (12+8)/4，然后调用 weather 查看北京的演示天气。最后用中文简短回答，并说明天气是模拟数据。")
