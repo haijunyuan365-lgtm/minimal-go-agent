@@ -1,0 +1,56 @@
+package main
+
+import (
+	"context"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"demoagent/internal/config"
+	"demoagent/internal/httpapi"
+	"demoagent/internal/session"
+)
+
+func main() {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	cfg, err := config.Load()
+	if err != nil {
+		logger.Error("invalid configuration", "error", err)
+		os.Exit(1)
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	store, err := session.Open(ctx, cfg.DatabasePath)
+	if err != nil {
+		logger.Error("database initialization failed", "error", err)
+		os.Exit(1)
+	}
+	defer store.Close()
+
+	server := &http.Server{
+		Addr:              cfg.ListenAddr,
+		Handler:           httpapi.NewHandler(store),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			logger.Error("server shutdown failed", "error", err)
+		}
+	}()
+	logger.Info("server starting", "addr", cfg.ListenAddr)
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		logger.Error("server failed", "error", err)
+		os.Exit(1)
+	}
+}
