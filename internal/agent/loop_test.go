@@ -180,3 +180,32 @@ func TestToolFollowupReadsSessionTodo(t *testing.T) {
 		t.Fatalf("todo not persisted: %+v, %v", todos, err)
 	}
 }
+
+func TestToolErrorsAreTracedAndReturnedToModel(t *testing.T) {
+	for _, tc := range []struct {
+		name, args, want string
+	}{
+		{"division by zero", `{"expression":"4/0"}`, "division by zero"},
+		{"invalid arguments", `{"expression":"2+2","extra":"x"}`, "unexpected argument"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := &scriptedClient{responses: []llm.Response{
+				{Output: []json.RawMessage{toolCall("failed_call", "calculator", tc.args)}},
+				{Output: []json.RawMessage{finalMessage("计算未完成。")}},
+			}}
+			runner, store, conversation := testRunner(t, client)
+			result, err := runner.Run(context.Background(), "user-a", conversation.ID, "请计算")
+			if err != nil || result.Answer != "计算未完成。" || result.ToolCalls != 1 {
+				t.Fatalf("result = %+v, %v", result, err)
+			}
+			traces, err := store.ListTraces(context.Background(), "user-a", conversation.ID)
+			if err != nil || len(traces) != 1 || !strings.Contains(traces[0].Error, tc.want) || len(traces[0].Result) != 0 {
+				t.Fatalf("failure trace = %+v, %v", traces, err)
+			}
+			lastInput := string(client.requests[1].Input[len(client.requests[1].Input)-1])
+			if !strings.Contains(lastInput, tc.want) || !strings.Contains(lastInput, "function_call_output") {
+				t.Fatalf("tool error was not returned to model: %s", lastInput)
+			}
+		})
+	}
+}

@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -84,6 +85,47 @@ func TestDeepSeekResponsesWireFormat(t *testing.T) {
 	})
 	if err != nil || response.ID != "resp_ds" || len(response.Output) != 2 {
 		t.Fatalf("DeepSeek response = %+v, %v", response, err)
+	}
+}
+
+type waitForCancellation struct{}
+
+func (waitForCancellation) RoundTrip(r *http.Request) (*http.Response, error) {
+	<-r.Context().Done()
+	return nil, r.Context().Err()
+}
+
+func TestResponsesClientTimeout(t *testing.T) {
+	client := NewDeepSeekClient("test-key", "https://example.com/responses", 20*time.Millisecond)
+	client.HTTP.Transport = waitForCancellation{}
+	_, err := client.CreateResponse(context.Background(), Request{
+		Model: "deepseek-flash", Input: []json.RawMessage{json.RawMessage(`{"role":"user","content":"hi"}`)},
+	})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("want request deadline error, got %v", err)
+	}
+}
+
+func TestResponsesClientRejectsInvalidResponses(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+	}{
+		{"malformed JSON", `not-json`},
+		{"missing output", `{"id":"resp_1","status":"completed"}`},
+		{"incomplete", `{"id":"resp_1","status":"incomplete","output":[],"incomplete_details":{"reason":"max_output_tokens"}}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer server.Close()
+			client := NewResponsesClient("test-key", server.URL+"/responses", time.Second)
+			if _, err := client.CreateResponse(context.Background(), Request{
+				Model: "test-model", Input: []json.RawMessage{json.RawMessage(`{"role":"user","content":"hi"}`)},
+			}); err == nil {
+				t.Fatal("expected malformed or incomplete response to fail")
+			}
+		})
 	}
 }
 

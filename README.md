@@ -72,4 +72,4 @@ go test ./...
 
 DeepSeek 协议依据：[Responses API 指南](https://api-docs.deepseek.com/guides/responses_api/)及[接口定义](https://api-docs.deepseek.com/api/create-response/)。
 
-开发过程记录在 [AI Prompt 记录](docs/prompts.md)和[问题解决记录](docs/problem-solving.md)。
+测试场景和待执行的真实 API 验证步骤见[测试用例与验证记录](docs/test-cases.md)。开发过程记录在 [AI Prompt 记录](docs/prompts.md)和[问题解决记录](docs/problem-solving.md)。
